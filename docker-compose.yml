@@ -1,0 +1,72 @@
+#docker stack deploy -c stack-optaweb.yml optaweb --prune
+version: "3.8"
+networks:
+  optaweb-internal:
+      driver: overlay
+      name: optaweb-internal
+      attachable: true
+  proxy:
+    external: true
+
+services:
+
+  optaweb:
+    image: kriskaminski/optaweb-employee-rostering:latest
+    restart: unless-stopped
+    command: java -Doptaweb.generator.initial.data=EMPTY -jar /opt/app/optaweb-employee-rostering.jar
+    depends_on:
+      - postgresql
+    networks:
+      - proxy
+      - optaweb-internal
+    # ports:
+    #   - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=production
+      - DATABASE_NAME=optaweb
+      - DATABASE_USER=optawebuser
+      - DATABASE_PASSWORD=XXXXXXX
+    deploy:
+      restart_policy:
+        condition: on-failure
+        max_attempts: 10
+      placement:
+        constraints:
+          - node.role==manager
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.optaweb.rule=Host(`grafik.`)"
+      - "traefik.http.routers.optaweb.entrypoints=web,websecure"
+      - "traefik.http.routers.skrypterict.tls=true"
+      - "traefik.http.routers.skrypterict.tls.options=default"
+      - "traefik.http.routers.optaweb.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.optaweb.middlewares=skrypter-secure@file"
+      # it seems you always need to give traefik a port so it 'notices' the service
+      - "traefik.http.services.optaweb.loadbalancer.server.port=8080"
+  postgresql:
+    image: postgres:12-alpine
+    volumes:
+      - ./data:/var/lib/postgresql/data
+    networks:
+      - optaweb-internal
+    environment:
+      - POSTGRES_DB=optaweb
+      - POSTGRES_USER=optawebuser
+      - POSTGRES_PASSWORD=XXXXXXX
+    restart: unless-stopped
+    deploy:
+      restart_policy:
+        condition: on-failure
+        max_attempts: 10
+      placement:
+        constraints:
+          - node.role==manager
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
